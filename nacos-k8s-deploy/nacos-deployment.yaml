@@ -1,0 +1,138 @@
+apiVersion: v1
+kind: Service
+metadata:
+  namespace: default
+  name: nacos-headless
+  labels:
+    app: nacos-headless
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - port: 8848
+      name: server
+      targetPort: 8848
+    - port: 9848
+      name: client-rpc
+      targetPort: 9848
+    - port: 9849
+      name: raft-rpc
+      targetPort: 9849
+  selector:
+    app: nacos
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  namespace: default
+  name: nacos-config
+data:
+  mysql.db.name: "nacos"
+  mysql.host: "10.1.6.11"
+  mysql.port: "30033"
+  mysql.user: "ning"
+  mysql.password: "sinosun"
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  namespace: default
+  name: nacos
+spec:
+  serviceName: nacos-headless
+  replicas: 3
+  template:
+    metadata:
+      labels:
+        app: nacos
+      annotations:
+        pod.alpha.kubernetes.io/initialized: "true"
+    spec:
+      containers:
+        - name: k8snacos
+          imagePullPolicy: IfNotPresent
+          image: xast.test.com/sinosun/nacos-server:2.0.2
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "50m"
+            limits:
+              memory: "2Gi"
+          livenessProbe:
+            tcpSocket:
+              port: 8848
+            initialDelaySeconds: 60
+            periodSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+          readinessProbe:
+            tcpSocket:
+              port: 8848
+            initialDelaySeconds: 60
+            periodSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+          ports:
+            - containerPort: 8848
+              name: client
+            - containerPort: 9848
+              name: client-rpc
+            - containerPort: 9849
+              name: raft-rpc
+          env:
+            - name: NACOS_REPLICAS
+              value: "3"
+            - name: MYSQL_SERVICE_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: nacos-config
+                  key: mysql.host
+            - name: MYSQL_SERVICE_DB_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: nacos-config
+                  key: mysql.db.name
+            - name: MYSQL_SERVICE_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: nacos-config
+                  key: mysql.port
+            - name: MYSQL_SERVICE_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: nacos-config
+                  key: mysql.user
+            - name: MYSQL_SERVICE_PASSWORD
+              valueFrom:
+                configMapKeyRef:
+                  name: nacos-config
+                  key: mysql.password
+            - name: NACOS_SERVER_PORT
+              value: "8848"
+            - name: NACOS_APPLICATION_PORT
+              value: "8848"
+            - name: PREFER_HOST_MODE
+              value: "hostname"
+            - name: NACOS_SERVERS
+              value: "nacos-0.nacos-headless.default.svc.cluster.local:8848 nacos-1.nacos-headless.default.svc.cluster.local:8848 nacos-2.nacos-headless.default.svc.cluster.local:8848"
+  selector:
+    matchLabels:
+      app: nacos
+---
+apiVersion: v1
+kind: Service
+metadata:
+  namespace: default
+  name: nacos-cluster-web
+  labels:
+    app: nacos-cluster-web
+spec:
+  type: NodePort
+  ports:
+  - name:  nacos
+    port: 8848
+    targetPort: 8848
+    protocol: TCP
+    nodePort: 30928
+  selector:
+    app: nacos
